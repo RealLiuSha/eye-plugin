@@ -1,1 +1,1 @@
-# eye-plugin
+plugin
