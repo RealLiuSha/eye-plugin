@@ -1424,4 +1424,5 @@ def stdout_write(data):
 
 def stderr_write(data):
     sys.stderr.write(str(data))
+    sys.exit(127)
 
