@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+
+PLUGIN_BIN=$(cd `dirname $0`; pwd)
+export PATH=$PATH:$PLUGIN_BIN
