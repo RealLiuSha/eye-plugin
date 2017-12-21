@@ -8,33 +8,39 @@ from optparse import OptionParser
 
 
 def metrics(opts):
+    opts["url"] = opts.get("url") or "/nginx_status"
+
     for key in opts.keys():
         if opts.get(key): continue
         raise RuntimeError("%s is required!" % key)
 
-    nginx_status_data = rest.get("http://{address}:{port}/nginx_status".format(**opts), max_age=-1).text
+    nginx_status_data = rest.get("http://{address}:{port}{url}".format(**opts), max_age=-1).text
 
     req_active = re.search(r'Active connections:\s+(\d+)', nginx_status_data).group
     req_conn_stats = re.search(r'\s*(\d+)\s+(\d+)\s+(\d+)', nginx_status_data).group
     req_io_stats = re.search(r'Reading:\s*(\d+)\s*Writing:\s*(\d+)\s*Waiting:\s*(\d+)', nginx_status_data).group
 
     return [
-        rest.metric(value, key, tags="type=plugin,name=%s" % rest.filename(__file__))
-        for key, value in {"active_connections": req_active(1), "accepted_connections": req_conn_stats(1),
-                           "handled_connections": req_conn_stats(2), "number_of_requests": req_conn_stats(3),
-                           "connections_reading": req_io_stats(1), "connections_writing": req_io_stats(2),
-                           "connections_waiting": req_io_stats(3)}.items()
+        rest.metric(value, key, tags="type=plugin")
+        for key, value in {"nginx.active_connections": req_active(1),
+                           "nginx.accepted_connections": req_conn_stats(1),
+                           "nginx.handled_connections": req_conn_stats(2),
+                           "nginx.number_of_requests": req_conn_stats(3),
+                           "nginx.connections_reading": req_io_stats(1),
+                           "nginx.connections_writing": req_io_stats(2),
+                           "nginx.connections_waiting": req_io_stats(3)}.items()
     ]
 
 
 def main():
     op = OptionParser("%s <Options>" % __file__)
-    op.add_option("-n", "--name", action="store", type="string", help="monitor app name")
-    op.add_option("-p", "--port", action="store", type="string", help="monitor app port number")
-    op.add_option("-a", "--address", action="store", type="string", help="monitor app ip address")
+    op.add_option("--port", action="store", type="string", help="monitor app port number")
+    op.add_option("--address", action="store", type="string", help="monitor app ip address")
+    op.add_option("--url", action="store", type="string", help="monitor app url")
 
     options, _ = op.parse_args()
     return metrics(options.__dict__)
+
 
 if __name__ == '__main__':
     try:

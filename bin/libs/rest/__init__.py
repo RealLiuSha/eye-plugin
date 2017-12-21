@@ -14,6 +14,7 @@ import json as _json
 from datetime import datetime
 from base64 import b64encode, b64decode
 from codecs import open as _open, getencoder
+from subprocess import PIPE, Popen, STDOUT
 from collections import MutableMapping, defaultdict
 
 __all__ = ["request", "get", "head", "post", "put", "patch", "delete", "cache_cleanup", "Session"]
@@ -1426,3 +1427,10 @@ def stderr_write(data):
     sys.stderr.write(str(data))
     sys.exit(127)
 
+
+def shell_call(cmd):
+    process = Popen(cmd, stdout=PIPE, shell=True, universal_newlines=True, stderr=STDOUT)
+    result, _ = process.communicate()
+    status = process.poll()
+
+    return result[:-1] if len(result) > 1 and result[-1:] == '\n' else result, status

@@ -15,19 +15,19 @@ def metrics(opts):
                                   max_age=-1)
 
     try:
-        return rest.metric(rmei_balance_data.json()["balance"], "emei_sms_margin", tags="type=plugin,app=sms")
+        return [rest.metric(rmei_balance_data.json()["balance"], "sms.emei_margin", tags="type=plugin")]
     except Exception:
         raise RuntimeError("get data failed!")
 
 
 def main():
     op = OptionParser("%s <Options>" % __file__)
-    op.add_option("-n", "--name", action="store", type="string", help="monitor app name")
-    op.add_option("-p", "--password", action="store", type="string", help="monitor app password")
-    op.add_option("-a", "--account", action="store", type="string", help="monitor app account")
+    op.add_option("--password", action="store", type="string", help="monitor app password")
+    op.add_option("--account", action="store", type="string", help="monitor app account")
 
     options, _ = op.parse_args()
     return metrics(options.__dict__)
+
 
 if __name__ == '__main__':
     try:

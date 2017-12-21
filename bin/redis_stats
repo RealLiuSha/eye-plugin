@@ -1,0 +1,59 @@
+#!/usr/bin/env python
+# coding=utf-8
+# Create By Freedie.liu
+import re
+
+from libs import rest
+from optparse import OptionParser
+
+
+def metrics(opts):
+    opts["password"] = opts.get("password") or "-"
+    opts["cli"] = opts.get("cli") or "redis-cli"
+
+    for key in opts.keys():
+        if opts.get(key): continue
+        raise RuntimeError("%s is required!" % key)
+
+    METRICS = {
+        "connected_clients": {"type": "GAUGE", "remark": "已连接客户端的数量"},
+        "blocked_clients": {"type": "GAUGE", "remark": "正在等待阻塞命令（BLPOP、BRPOP、BRPOPLPUSH）的客户端的数量"},
+        "used_memory": {"type": "GAUGE", "remark": "由 Redis 分配器分配的内存总量，以字节（byte）为单位"},
+        "used_memory_rss": {"type": "GAUGE", "remark": "从操作系统的角度，返回 Redis 已分配的内存总量（俗称常驻集大小）"},
+        "mem_fragmentation_ratio": {"type": "GAUGE", "remark": "used_memory_rss 和 used_memory 之间的比率"},
+        "total_commands_processed": {"type": "COUNTER", "remark": "采集周期内执行命令总数"},
+        "rejected_connections": {"type": "COUNTER", "remark": "采集周期内拒绝连接总数"},
+        "expired_keys": {"type": "GAUGE", "COUNTER": "采集周期内过期key总数"},
+        "evicted_keys": {"type": "GAUGE", "COUNTER": "采集周期内踢出key总数"},
+        "keyspace_hits": {"type": "GAUGE", "COUNTER": "采集周期内key命中总数"},
+        "keyspace_misses": {"type": "GAUGE", "COUNTER": "采集周期内key拒绝总数"},
+        "keyspace_hit_ratio": {"type": "GAUGE", "remark": "访问命中率"}
+    }
+
+    result, _ = rest.shell_call('%s -h %s -p %s -a %s info' % (
+        opts["cli"], opts["address"], opts["port"], opts["password"]
+    ))
+
+    return [
+        rest.metric(item[1], "redis.%s" % item[0], counter_type=METRICS[item[0]]["type"], tags="type=plugin")
+        for item in re.compile(r'(\w+):([0-9]+\.?[0-9]*)').findall(result)
+        if len(item) > 1 and item[0] in METRICS.keys()
+    ]
+
+
+def main():
+    op = OptionParser("%s <Options>" % __file__)
+    op.add_option("--cli", action="store", type="string", help="redis cli path")
+    op.add_option("--port", action="store", type="string", help="redis running port")
+    op.add_option("--address", action="store", type="string", help="redis running address")
+    op.add_option("--password", action="store", type="string", help="redis running password")
+
+    options, _ = op.parse_args()
+    return metrics(options.__dict__)
+
+
+if __name__ == '__main__':
+    try:
+        rest.stdout_write(main())
+    except Exception as e:
+        rest.stderr_write(e)

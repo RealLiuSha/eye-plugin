@@ -1,0 +1,36 @@
+#!/usr/bin/env python
+# coding=utf-8
+# Create By Freedie.liu
+from libs import rest
+from optparse import OptionParser
+
+
+def metrics(opts):
+    opts["status"] = int(opts.get("status") or 0)
+
+    for key in opts.keys():
+        if not isinstance(opts.get(key), type(None)): continue
+        raise RuntimeError("%s is required!" % key)
+
+    result, status = rest.shell_call(opts["command"])
+    if status != opts["status"]: raise RuntimeError("status code[%s] not match" % status)
+    float(result)
+
+    return [rest.metric(result, opts["metric"], tags="type=plugin")]
+
+
+def main():
+    op = OptionParser("%s <Options>" % __file__)
+    op.add_option("--metric", action="store", type="string", help="metrics name")
+    op.add_option("--command", action="store", type="string", help="need to execute the command")
+    op.add_option("--status", action="store", type="string", help="Need to check the status code")
+
+    options, _ = op.parse_args()
+    return metrics(options.__dict__)
+
+
+if __name__ == '__main__':
+    try:
+        rest.stdout_write(main())
+    except Exception as e:
+        rest.stderr_write(e)

@@ -1,0 +1,84 @@
+#!/usr/bin/env python
+# coding=utf-8
+# Create By Freedie.liu
+from libs import rest
+from operator import concat
+from functools import reduce
+from optparse import OptionParser
+
+
+def metrics(opts):
+    opts["password"] = opts.get("password") or ""
+    opts["username"] = opts.get("username") or ""
+
+    for key in opts.keys():
+        if not isinstance(opts.get(key), type(None)): continue
+        raise RuntimeError("%s is required!" % key)
+
+    METRICS = {
+        "messages": {
+            "messages_ready": {"type": "GAUGE", "remark": "队列中处于等待被消费状态消息数"},
+            "messages_unacknowledged": {"type": "GAUGE", "remark": "队列中处于消费中状态的消息数"},
+            # "messages_total": {"type": "GAUGE", "remark": "队列中所有未完成消费的消息数(mssages_ready+mssages_unacknowledged)"},
+        },
+        "rates": {
+            "ack": {"type": "GAUGE", "remark": "消费者ack的速率"},
+            "deliver": {"type": "GAUGE", "remark": "deliver的速率"},
+            "deliver_get": {"type": "GAUGE", "remark": "deliver_get的速率"},
+            "publish": {"type": "GAUGE", "remark": "publish的速率"},
+        }
+    }
+
+    def generate_key(k, m): return "rabbitmq.%s.%s" % (k.replace(".", "-"), m)
+
+    def generate_metric(stats, name):
+        rates = [
+            rest.metric(stat["message_stats"]["%s_details" % metric]["rate"], "%s_rate" % generate_key(stat["name"], metric),
+                        tags="type=plugin")
+            for stat in stats if isinstance(stat, dict) and (stat["name"] == name or name == "*")
+            for metric in METRICS["rates"].keys() if "message_stats" in stat and metric in stat["message_stats"].keys()
+        ]
+
+        def generate_messages(s):
+            msgs = [
+                rest.metric(s[metric], generate_key(s["name"], metric), tags="type=plugin")
+                for metric in METRICS["messages"].keys()
+            ]
+
+            msgs.append(rest.metric(
+                msgs[0]["value"] + msgs[1]["value"], generate_key(s["name"], "messages_total"), tags="type=plugin"
+            ))
+
+            return msgs
+
+        messages = [
+            generate_messages(stat)
+            for stat in stats if isinstance(stat, dict) and (stat["name"] == name or name == "*")
+        ]
+
+        return reduce(concat, messages) + rates
+
+    auth = (opts["username"], opts["password"])
+    data = rest.get("http://{address}:{port}/api/queues".format(**opts), auth=auth, max_age=-1)
+
+    return reduce(concat, [generate_metric(data.json(), queue_name) for queue_name in opts["queue_names"].split(",")])
+
+
+def main():
+    op = OptionParser("%s <Options>" % __file__)
+
+    op.add_option("--port", action="store", type="string", help="rabbitmq api port")
+    op.add_option("--address", action="store", type="string", help="rabbitmq api address")
+    op.add_option("--username", action="store", type="string", help="rabbitmq api username")
+    op.add_option("--password", action="store", type="string", help="rabbitmq api password")
+    op.add_option("--queue_names", action="store", type="string", help="rabbitmq queue name list")
+
+    options, _ = op.parse_args()
+    return metrics(options.__dict__)
+
+
+if __name__ == '__main__':
+    try:
+        rest.stdout_write(main())
+    except Exception as e:
+        rest.stderr_write(e)

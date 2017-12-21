@@ -2,9 +2,8 @@
 # coding=utf-8
 # Create By Freedie.liu
 import os
-from optparse import OptionParser
-from subprocess import PIPE, Popen, STDOUT
 
+from optparse import OptionParser
 from libs import rest, LIBS_PATH
 
 
@@ -15,37 +14,43 @@ def metrics(opts):
 
     METRICS = {
         "java.lang:type=ClassLoading": [
-            {"类-已卸载": "UnloadedClassCount"},
-            {"类-已加载": "LoadedClassCount"},
-            {"类-总计": "TotalLoadedClassCount"}
+            {"类-已卸载": {"key": "UnloadedClassCount", "alias": "jmx.unloaded_class_count"}},
+            {"类-已加载": {"key": "LoadedClassCount", "alias": "jmx.loaded_class_count"}},
+            {"类-总计": {"key": "TotalLoadedClassCount", "alias": "jmx.total_loaded_class_count"}}
         ],
         'Catalina:name=\\"http-nio-%s\\",type=ThreadPool' % opts["ctb"]: [
-            {"线程-CurrentThreadsBusy": "currentThreadsBusy"}
+            {"线程-CurrentThreadsBusy": {"key": "currentThreadsBusy", "alias": "jmx_current_thread_busy"}}
         ],
         "java.lang:type=Memory": [
-            {"堆内存最大": "HeapMemoryUsage.max"},
-            {"堆内存已使用": "HeapMemoryUsage.used"},
-            {"堆内存已提交": "HeapMemoryUsage.committed"}
+            {"堆内存最大": {"key": "HeapMemoryUsage.max", "alias": "jmx.heap_memory_usage.max"}},
+            {"堆内存已使用": {"key": "HeapMemoryUsage.used", "alias": "jmx.heap_memory_usage.used"}},
+            {"堆内存已提交": {"key": "HeapMemoryUsage.committed", "alias": "jmx.heap_memory_usage.committed"}},
         ],
         "java.lang:type=Threading": [
-            {"活动线程": "ThreadCount"},
-            {"线程峰值": "PeakThreadCount"},
-            {"线程总计": "TotalStartedThreadCount"}
+            {"活动线程": {"key": "ThreadCount", "alias": "jmx.thread_count"}},
+            {"线程峰值": {"key": "PeakThreadCount", "alias": "jmx.peak_thread_count"}},
+            {"线程总计": {"key": "TotalStartedThreadCount", "alias": "jmx.total_startd_thread_count"}}
         ]
     }
 
     split_sep = ' = '
     script = '\n'.join([
-        'get -n -b {0} {1}'.format(object_name, list(attribute.values()).pop())
+        'get -n -b {0} {1}'.format(object_name, list(attribute.values()).pop()["key"])
         for object_name, attributes in METRICS.items()
-        for attribute in attributes if len(attribute) > 0
+        for attribute in attributes
     ])
+
+    def get_alias(k):
+        return [
+            list(attribute.values()).pop()["alias"] for _, attributes in METRICS.items()
+            for attribute in attributes if list(attribute.values()).pop()["key"] == k
+        ].pop()
 
     def generate_metric(_str):
         data = _str.split(split_sep)
         return rest.metric(
-            data[1].replace(";", ""), data[0],
-            tags="type=plugin,name=%s,jmx_port=%s" % (rest.filename(__file__), opts["port"])
+            data[1].replace(";", ""), get_alias(data[0]),
+            tags="type=plugin,jmx_port=%s" % opts["port"]
         )
 
     host = "%s:%s" % (opts["address"], opts["port"])
@@ -53,12 +58,7 @@ def metrics(opts):
         "script": script, "command_path": os.path.join(LIBS_PATH, "jmxclient.jar"), "host": host,
     })
 
-    process = Popen(command, stdout=PIPE, shell=True, universal_newlines=True, stderr=STDOUT)
-    result, _ = process.communicate()
-    status = process.poll()
-
-    if result[-1:] == '\n': result = result[:-1]
-
+    result, status = rest.shell_call(command)
     return [{}] if status != 0 else [
         generate_metric(str_line)
         for str_line in filter(None, result.split(b'\n')) if split_sep in str_line
@@ -67,13 +67,13 @@ def metrics(opts):
 
 def main():
     op = OptionParser("%s <Options>" % __file__)
-    op.add_option("-n", "--name", action="store", type="string", help="monitor app name")
-    op.add_option("-p", "--port", action="store", type="string", help="monitor app port number")
-    op.add_option("-a", "--address", action="store", type="string", help="monitor app ip address")
-    op.add_option("-c", "--ctb", action="store", type="string", help="current threads busy port")
+    op.add_option("--port", action="store", type="string", help="monitor app port number")
+    op.add_option("--address", action="store", type="string", help="monitor app ip address")
+    op.add_option("--ctb", action="store", type="string", help="current threads busy port")
 
     options, _ = op.parse_args()
     return metrics(options.__dict__)
+
 
 if __name__ == '__main__':
     try:

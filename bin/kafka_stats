@@ -1,0 +1,198 @@
+#!/usr/bin/env python
+# coding=utf-8
+# Create By Freedie.liu
+import os
+
+from optparse import OptionParser
+from libs import rest, LIBS_PATH
+
+
+def metrics(opts):
+    for key in opts.keys():
+        if opts.get(key): continue
+        raise RuntimeError("%s is required!" % key)
+
+    METRICS = [
+        {
+            "bean": "kafka.server:name=UnderReplicatedPartitions,type=ReplicaManager",
+            "attr": "Value", "alias": "kafka.server.under_replicated_partiotions"
+            #: 复制中的 Partition 数量
+        },
+        {
+            "bean": "kafka.server:name=PartitionCount,type=ReplicaManager",
+            "attr": "Value", "alias": "kafka.server.partition_count"
+            #: 每个 broker 节点的 topic partition 的数量, 用于决定是否需要 rebalance [正常的值: 应在各个broker中平均分布]
+        },
+        {
+            "bean": "kafka.server:name=BytesInPerSec,type=BrokerTopicMetrics",
+            "attr": "MeanRate", "alias": "kafka.server.bytes_in_per_sec"
+            #: 所有的topic的流入数据速率(字节/秒)
+        },
+        {
+            "bean": "kafka.server:name=BytesOutPerSec,type=BrokerTopicMetrics",
+            "attr": "MeanRate", "alias": "kafka.server.bytes_out_per_sec"
+            #: 所有的topic的流出数据速率(字节/秒)
+        },
+        {
+            "bean": "kafka.server:name=MessagesInPerSec,type=BrokerTopicMetrics",
+            "attr": "MeanRate", "alias": "kafka.server.messages_in_per_sec"
+            #: 所有的topic的消息速率(消息数/秒)
+        },
+        {
+            "bean": "kafka.server:name=LeaderCount,type=ReplicaManager",
+            "attr": "Value", "alias": "kafka.server.leader_count"
+            #: Leader的replica的数量 [正常的值:应在各个broker中平均分布]
+        },
+        {
+            "bean": "kafka.server:clientId=Replica,name=MaxLag,type=ReplicaFetcherManager",
+            "attr": "Value", "alias": "kafka.server.max_lag"
+            #: follower落后leader replica的最大的消息数量 [正常的值: 小于replica.lag.max.messages]
+        },
+        {
+            "bean": "kafka.controller:name=ActiveControllerCount,type=KafkaController",
+            "attr": "Value", "alias": "kafka.controller.active_controller_count"
+            #: 标记哪个 broker 节点是 controller [在集群中只有一个broker的这个值为1]
+        },
+        {
+            "bean": "kafka.controller:name=OfflinePartitionsCount,type=KafkaController",
+            "attr": "Value", "alias": "kafka.controller.offline_partitions_count"
+            #: 下线的 partition 的数量, 一般 >0 就说明集群有问题
+        },
+        {
+            "bean": "kafka.controller:name=UncleanLeaderElectionsPerSec,type=ControllerStats",
+            "attr": "MeanRate", "alias": "kafka.controller.unclean_leader_elections_per_sec"
+            #: Unclean的leader选举速率 [正常的值:0]
+        },
+        {
+            "bean": "kafka.controller:name=LeaderElectionRateAndTimeMs,type=ControllerStats",
+            "attr": "MeanRate", "alias": "kafka.controller.leader_election_rate_and_time_ms"
+            #: 选举leader的速率 [如果有broker挂了，此值非0]
+        },
+        {
+            "bean": "kafka.network:name=RequestsPerSec,request=Produce,type=RequestMetrics",
+            "attr": "MeanRate", "alias": "kafka.network.produce_requests_per_sec"
+            #: Produce 的请求速率(请求次数/秒)
+        },
+        {
+            "bean": "kafka.network:name=RequestsPerSec,request=FetchFollower,type=RequestMetrics",
+            "attr": "MeanRate", "alias": "kafka.network.fetch_follower_requests_per_sec"
+            #: FetchFollower 的请求速率(请求次数/秒)
+        },
+        {
+            "bean": "kafka.network:name=RequestsPerSec,request=FetchConsumer,type=RequestMetrics",
+            "attr": "MeanRate", "alias": "kafka.network.fetch_consumer_requests_per_sec"
+            #: FetchConsumer 的请求速率(请求次数/秒)
+        },
+        {
+            "bean": "kafka.network:name=TotalTimeMs,request=Produce,type=RequestMetrics",
+            "attr": "Mean", "alias": "kafka.network.produce_total_time_ms"
+            #: 一个请求（Produce）耗费的所有时间 [正常的值: 包括了queue, local, remote和response send time]
+        },
+        {
+            "bean": "kafka.network:name=TotalTimeMs,request=FetchFollower,type=RequestMetrics",
+            "attr": "Mean", "alias": "kafka.network.fetch_follower_total_time_ms"
+            #: 一个请求（FetchFollower）耗费的所有时间 [正常的值: 包括了queue, local, remote和response send time]
+        },
+        {
+            "bean": "kafka.network:name=TotalTimeMs,request=FetchConsumer,type=RequestMetrics",
+            "attr": "Mean", "alias": "kafka.network.fetch_consumer_total_time_ms"
+            #: 一个请求（FetchConsumer）耗费的所有时间 [正常的值: 包括了queue, local, remote和response send time]
+        },
+        {
+            "bean": "kafka.network:name=ResponseQueueTimeMs,request=Produce,type=RequestMetrics",
+            "attr": "Mean", "alias": "kafka.network.produce_response_queue_time_ms"
+            #: 请求（Produce）在请求队列中的等待时间
+        },
+        {
+            "bean": "kafka.network:name=ResponseQueueTimeMs,request=FetchFollower,type=RequestMetrics",
+            "attr": "Mean", "alias": "kafka.network.fetch_follower_response_queue_time_ms"
+            #: 请求（FetchFollower）在请求队列中的等待时间
+        },
+        {
+            "bean": "kafka.network:name=ResponseQueueTimeMs,request=FetchConsumer,type=RequestMetrics",
+            "attr": "Mean", "alias": "kafka.network.fetch_consumer_response_queue_time_ms"
+            #: 请求（FetchConsumer）在请求队列中的等待时间
+        },
+        {
+            "bean": "kafka.network:name=LocalTimeMs,request=Produce,type=RequestMetrics",
+            "attr": "Mean", "alias": "kafka.network.produce_local_time_ms"
+            #: 请求（Produce）在leader处理请求花的时间
+        },
+        {
+            "bean": "kafka.network:name=LocalTimeMs,request=FetchFollower,type=RequestMetrics",
+            "attr": "Mean", "alias": "kafka.network.fetch_follower_local_time_ms"
+            #: 请求（FetchFollower）在leader处理请求花的时间
+        },
+        {
+            "bean": "kafka.network:name=LocalTimeMs,request=FetchConsumer,type=RequestMetrics",
+            "attr": "Mean", "alias": "kafka.network.fetch_consumer_local_time_ms"
+            #: 请求（FetchConsumer）在leader处理请求花的时间
+        },
+        {
+            "bean": "kafka.network:name=RemoteTimeMs,request=Produce,type=RequestMetrics",
+            "attr": "Mean", "alias": "kafka.network.produce_remote_time_ms"
+            #: 请求（Produce）等待follower花费的时间
+        },
+        {
+            "bean": "kafka.network:name=RemoteTimeMs,request=FetchFollower,type=RequestMetrics",
+            "attr": "Mean", "alias": "kafka.network.fetch_follower_remote_time_ms"
+            #: 请求（FetchFollower）等待follower花费的时间
+        },
+        {
+            "bean": "kafka.network:name=RemoteTimeMs,request=FetchConsumer,type=RequestMetrics",
+            "attr": "Mean", "alias": "kafka.network.fetch_consumer_remote_time_ms"
+            #: 请求（FetchConsumer）等待follower花费的时间
+        },
+        {
+            "bean": "kafka.network:name=ResponseSendTimeMs,request=Produce,type=RequestMetrics",
+            "attr": "Mean", "alias": "kafka.network.produce_response_send_time_ms"
+            #: 请求（Produce）发送响应花费的时间
+        },
+        {
+            "bean": "kafka.network:name=ResponseSendTimeMs,request=FetchFollower,type=RequestMetrics",
+            "attr": "Mean", "alias": "kafka.network.fetch_follower_response_send_time_ms"
+            #: 请求（FetchFollower）发送响应花费的时间
+        },
+        {
+            "bean": "kafka.network:name=ResponseSendTimeMs,request=FetchConsumer,type=RequestMetrics",
+            "attr": "Mean", "alias": "kafka.network.fetch_consumer_response_send_time_ms"
+            #: 请求（FetchConsumer）发送响应花费的时间
+        },
+    ]
+
+    split_sep = ' = '
+    script = '\n'.join(['get -n -b {0} {1}'.format(metric["bean"], metric["attr"]) for metric in METRICS])
+
+    def generate_metric(_str):
+        data = _str.split("mbean = ")[-1].split(split_sep)
+        return rest.metric(
+            data[1], [m["alias"] for m in METRICS if m["bean"] in data[0]].pop(),
+            tags="type=plugin,jmx_port=%s" % opts["port"]
+        )
+
+    host = "%s:%s" % (opts["address"], opts["port"])
+    command = '''/bin/bash -c "echo '{script}' | java -jar {command_path} -l {host} -v verbose -n"'''.format(**{
+        "script": script, "command_path": os.path.join(LIBS_PATH, "jmxclient.jar"), "host": host,
+    })
+
+    result, status = rest.shell_call(command)
+    return [{}] if status != 0 else [
+        generate_metric(str_line)
+        for str_line in filter(None, result[0:-1].split(b';\n#')) if split_sep in str_line
+    ]
+
+
+def main():
+    op = OptionParser("%s <Options>" % __file__)
+    op.add_option("--port", action="store", type="string", help="monitor app port number")
+    op.add_option("--address", action="store", type="string", help="monitor app ip address")
+
+    options, _ = op.parse_args()
+    return metrics(options.__dict__)
+
+
+if __name__ == '__main__':
+    try:
+        rest.stdout_write(main())
+    except Exception as e:
+        rest.stderr_write(e)
